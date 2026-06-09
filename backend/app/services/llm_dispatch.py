@@ -1,4 +1,4 @@
-"""LLM-Only Dispatch — uses Gemini 3.5 Pro to replicate OR-Tools optimization via prompting."""
+"""LLM-only dispatch using GPT-5 to replicate OR-Tools optimization via prompting."""
 import json
 import time
 import uuid
@@ -7,8 +7,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from google import genai
-from google.genai import types
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.models.personnel import Personnel
@@ -42,19 +41,7 @@ class LlmPipelineResult:
 class LlmDispatchService:
     def __init__(self, db: Session):
         self.db = db
-        self.client = None
-        if settings.vertex_ai_api_key:
-            self.client = genai.Client(
-                vertexai=True,
-                api_key=settings.vertex_ai_api_key,
-                http_options=types.HttpOptions(base_url="https://aiplatform.googleapis.com/"),
-            )
-        elif settings.vertex_ai_project:
-            self.client = genai.Client(
-                vertexai=True,
-                project=settings.vertex_ai_project,
-                location=settings.vertex_ai_location,
-            )
+        self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
 
     async def run_full_pipeline(self) -> LlmPipelineResult:
         run_id = str(uuid.uuid4())[:8]
@@ -91,7 +78,7 @@ class LlmDispatchService:
             crews = crew_builder.build_crews(scoring, order)
             result.crews[order.id] = crews
 
-        # Instead of OR-Tools, call Gemini
+        # Instead of OR-Tools, call GPT-5
         llm_result = await self._llm_optimize(
             orders=orders,
             personnel=personnel,
@@ -130,18 +117,23 @@ class LlmDispatchService:
 
         for attempt in range(max_retries + 1):
             try:
-                response = await self.client.aio.models.generate_content(
-                    model="gemini-2.5-pro",
-                    contents=[prompt],
-                    config=types.GenerateContentConfig(
-                        temperature=0.0,
-                        max_output_tokens=65536,
-                        response_mime_type="application/json",
-                    ),
+                response = await self.client.chat.completions.create(
+                    model=settings.openai_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You are an optimization assistant. Output valid JSON only.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0.0,
+                    response_format={"type": "json_object"},
                 )
                 elapsed_ms = int((time.time() - start_time) * 1000)
 
-                raw_text = response.text.strip() if response.text else ""
+                raw_text = ""
+                if response.choices and response.choices[0].message.content:
+                    raw_text = response.choices[0].message.content.strip()
 
                 if not raw_text:
                     if attempt < max_retries:
