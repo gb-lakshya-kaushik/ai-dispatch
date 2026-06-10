@@ -18,8 +18,8 @@ export default function Dashboard() {
 
   return (
     <div className="max-w-5xl">
-      <h1 className="text-2xl font-bold mb-2">Dispatch Dashboard</h1>
-      <p className="text-muted-foreground mb-8">
+      <h1 className="text-2xl font-bold tracking-tight mb-1">Dispatch Dashboard</h1>
+      <p className="text-muted-foreground text-sm mb-8">
         AI-powered workforce scheduling for traffic management operations
       </p>
 
@@ -34,14 +34,14 @@ export default function Dashboard() {
             <StatCard label="Customers" value={stats.customers} />
           </div>
 
-          <div className="bg-card border border-border rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-3">Quick Start</h2>
-            <p className="text-muted-foreground text-sm mb-4">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-sm">
+            <h2 className="text-lg font-semibold mb-2">Quick Start</h2>
+            <p className="text-muted-foreground text-sm mb-5">
               Run the full dispatch optimization pipeline to assign crews to all service orders.
             </p>
             <Link
               href="/dispatch"
-              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+              className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-orange-600 transition-colors shadow-sm"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
@@ -57,9 +57,9 @@ export default function Dashboard() {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div className="bg-card border border-border rounded-lg p-4">
-      <div className="text-2xl font-bold">{value}</div>
-      <div className="text-sm text-muted-foreground">{label}</div>
+    <div className="bg-card border border-border rounded-xl p-5 shadow-sm">
+      <div className="text-3xl font-bold text-foreground">{value}</div>
+      <div className="text-sm text-muted-foreground mt-1">{label}</div>
     </div>
   );
 }

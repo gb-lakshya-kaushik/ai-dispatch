@@ -14,7 +14,7 @@ class CrewCandidate:
     driver_id: str | None
     total_score: float
     composition_valid: bool
-    journeyman_count: int
+    tc_count: int
     apprentice_count: int
 
     @property
@@ -53,7 +53,7 @@ class CrewBuilder:
                 all_in_crew = [lead] + crew_members
 
                 # Validate composition
-                j_count = sum(1 for c in all_in_crew if c.personnel.type == "journeyman")
+                j_count = sum(1 for c in all_in_crew if c.personnel.type == "TC")
                 a_count = sum(1 for c in all_in_crew if c.personnel.type == "apprentice")
 
                 composition_valid = self._validate_composition(
@@ -77,7 +77,7 @@ class CrewBuilder:
                     driver_id=driver_id,
                     total_score=total_score,
                     composition_valid=composition_valid,
-                    journeyman_count=j_count,
+                    tc_count=j_count,
                     apprentice_count=a_count,
                 ))
 

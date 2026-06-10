@@ -4,23 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   api,
-  type PipelineResponse,
   type Assignment,
   type ScoredCandidate,
   type CrewCandidate,
   type EligibilityResponse,
   type ScoringResponse,
 } from "../lib/api";
-import { useDispatch, type ExplanationData } from "../lib/dispatch-context";
-
-interface ExplanationProgress {
-  completed: number;
-  failed: number;
-  total: number;
-  currentOrder: string;
-  status: "running" | "done" | "failed";
-  failReason?: string;
-}
+import { useDispatch } from "../lib/dispatch-context";
 
 export default function DispatchPage() {
   const {
@@ -28,13 +18,61 @@ export default function DispatchPage() {
     setStep, setResult, setSelectedOrder, setError, setExplanations,
   } = useDispatch();
 
-  const [explainProgress, setExplainProgress] = useState<ExplanationProgress | null>(null);
+  const [orderSummaryLoading, setOrderSummaryLoading] = useState<string | null>(null);
+  const [bulkSummaryLoading, setBulkSummaryLoading] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState({ done: 0, total: 0 });
+
+  const requestOrderSummary = async (orderId: string) => {
+    if (!result || orderSummaryLoading) return;
+    setOrderSummaryLoading(orderId);
+    try {
+      const crew = result.assignments[orderId];
+      const scoring = result.scoring[orderId];
+      const lead = crew.find((a) => a.role === "lead");
+      const members = crew.filter((a) => a.role === "member");
+
+      const leadScoring = scoring?.scored_leads.find(
+        (s) => s.personnel_id === lead?.personnel_id
+      );
+      const memberScorings = members.map((m) =>
+        scoring?.scored_members.find((s) => s.personnel_id === m.personnel_id)
+      );
+
+      const orderContext = {
+        total_score: result.total_score,
+        status: result.status,
+        current_order: orderId,
+        assigned_lead: lead
+          ? { name: lead.personnel_name, score: lead.individual_score, breakdown: leadScoring?.breakdown, type: leadScoring?.personnel_type }
+          : null,
+        assigned_members: members.map((m, idx) => ({
+          name: m.personnel_name, score: m.individual_score, breakdown: memberScorings[idx]?.breakdown, type: memberScorings[idx]?.personnel_type,
+        })),
+        alternative_leads: scoring?.scored_leads.filter((s) => s.personnel_id !== lead?.personnel_id).slice(0, 3).map((s) => ({ name: s.personnel_name, score: s.score, breakdown: s.breakdown })),
+        alternative_members: scoring?.scored_members.filter((s) => !members.find((m) => m.personnel_id === s.personnel_id)).slice(0, 3).map((s) => ({ name: s.personnel_name, score: s.score, breakdown: s.breakdown })),
+      };
+
+      const resp = await api.askCopilot(
+        `Analyze the crew assignment for ${orderId}. Do NOT include any preamble, introduction, or restatement of the question. Start directly with the analysis.\n\nFormat as follows:\n\n## Lead: ${lead?.personnel_name} (Score: ${lead?.individual_score.toFixed(1)})\nExplain key scoring factors in a compact table or bullet list showing factor name and value.\n\n## Members\nFor each member (${members.map((m) => `${m.personnel_name}`).join(", ")}), list their score and top 2 contributing factors in one line each.\n\n## Alternatives Considered\nBriefly note top 2-3 candidates not selected and the primary reason (1 sentence each).\n\n## Composition\nConfirm TC/apprentice ratio and driver compliance in 1-2 sentences.\n\nKeep the entire response under 300 words. Use markdown formatting. Be factual and data-driven.`,
+        undefined,
+        orderContext
+      );
+
+      setExplanations({
+        verdict: explanations?.verdict || "",
+        perOrder: { ...(explanations?.perOrder || {}), [orderId]: resp.answer },
+      });
+    } catch {
+      // silently fail — user can retry
+    } finally {
+      setOrderSummaryLoading(null);
+    }
+  };
 
   const runPipeline = async () => {
     setStep("running");
     setError(null);
     setExplanations(null);
-    setExplainProgress(null);
     try {
       const data = await api.runFullPipeline();
       setResult(data);
@@ -43,19 +81,6 @@ export default function DispatchPage() {
         setSelectedOrder(Object.keys(data.assignments).sort()[0]);
       }
 
-      setStep("explaining");
-      const orderIds = Object.keys(data.assignments).sort();
-      const total = orderIds.length + 1; // +1 for verdict
-      setExplainProgress({ completed: 0, failed: 0, total, currentOrder: "verdict", status: "running" });
-
-      const expData = await generateExplanations(data, (progress) => {
-        setExplainProgress(progress);
-      });
-
-      if (expData) {
-        setExplanations(expData);
-        setExplainProgress((p) => p ? { ...p, status: "done" } : null);
-      }
       setStep("done");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Pipeline failed");
@@ -63,76 +88,113 @@ export default function DispatchPage() {
     }
   };
 
+  const requestBulkSummary = async () => {
+    if (!result || bulkSummaryLoading) return;
+    const orderIds = Object.keys(result.assignments).sort();
+    const remaining = orderIds.filter((id) => !explanations?.perOrder[id]);
+    if (remaining.length === 0) return;
+
+    setBulkSummaryLoading(true);
+    setBulkProgress({ done: 0, total: remaining.length });
+
+    const perOrder = { ...(explanations?.perOrder || {}) };
+
+    for (let i = 0; i < remaining.length; i++) {
+      const orderId = remaining[i];
+      try {
+        const crew = result.assignments[orderId];
+        const scoring = result.scoring[orderId];
+        const lead = crew.find((a) => a.role === "lead");
+        const members = crew.filter((a) => a.role === "member");
+
+        const leadScoring = scoring?.scored_leads.find(
+          (s) => s.personnel_id === lead?.personnel_id
+        );
+        const memberScorings = members.map((m) =>
+          scoring?.scored_members.find((s) => s.personnel_id === m.personnel_id)
+        );
+
+        const orderContext = {
+          total_score: result.total_score,
+          status: result.status,
+          current_order: orderId,
+          assigned_lead: lead
+            ? { name: lead.personnel_name, score: lead.individual_score, breakdown: leadScoring?.breakdown, type: leadScoring?.personnel_type }
+            : null,
+          assigned_members: members.map((m, idx) => ({
+            name: m.personnel_name, score: m.individual_score, breakdown: memberScorings[idx]?.breakdown, type: memberScorings[idx]?.personnel_type,
+          })),
+          alternative_leads: scoring?.scored_leads.filter((s) => s.personnel_id !== lead?.personnel_id).slice(0, 3).map((s) => ({ name: s.personnel_name, score: s.score, breakdown: s.breakdown })),
+          alternative_members: scoring?.scored_members.filter((s) => !members.find((m) => m.personnel_id === s.personnel_id)).slice(0, 3).map((s) => ({ name: s.personnel_name, score: s.score, breakdown: s.breakdown })),
+        };
+
+        const resp = await api.askCopilot(
+          `Analyze the crew assignment for ${orderId}. Do NOT include any preamble, introduction, or restatement of the question. Start directly with the analysis.\n\nFormat as follows:\n\n## Lead: ${lead?.personnel_name} (Score: ${lead?.individual_score.toFixed(1)})\nExplain key scoring factors in a compact table or bullet list showing factor name and value.\n\n## Members\nFor each member (${members.map((m) => `${m.personnel_name}`).join(", ")}), list their score and top 2 contributing factors in one line each.\n\n## Alternatives Considered\nBriefly note top 2-3 candidates not selected and the primary reason (1 sentence each).\n\n## Composition\nConfirm TC/apprentice ratio and driver compliance in 1-2 sentences.\n\nKeep the entire response under 300 words. Use markdown formatting. Be factual and data-driven.`,
+          undefined,
+          orderContext
+        );
+        perOrder[orderId] = resp.answer;
+      } catch {
+        perOrder[orderId] = "Unable to generate explanation for this order.";
+      }
+      setBulkProgress({ done: i + 1, total: remaining.length });
+      setExplanations({ verdict: explanations?.verdict || "", perOrder: { ...perOrder } });
+    }
+
+    setBulkSummaryLoading(false);
+  };
+
   return (
     <div className="max-w-7xl">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">Dispatch Flow</h1>
-          <p className="text-muted-foreground text-sm">
-            Eligibility → Scoring → Crew Building → Optimization → Explanation
+          <h1 className="text-2xl font-bold tracking-tight">Dispatch Flow</h1>
+          <p className="text-muted-foreground text-sm mt-1">
+            Eligibility → Scoring → Crew Building → Optimization
           </p>
         </div>
-        <button
-          onClick={runPipeline}
-          disabled={step === "running" || step === "explaining"}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
-        >
-          {step === "running"
-            ? "Optimizing..."
-            : step === "explaining"
-            ? "Generating Explanations..."
-            : step === "done"
-            ? "Re-run Pipeline"
-            : "Run Full Pipeline"}
-        </button>
+        <div className="flex items-center gap-2">
+          {step === "done" && result && (
+            <button
+              onClick={requestBulkSummary}
+              disabled={bulkSummaryLoading}
+              className="px-4 py-2.5 bg-card border border-border text-foreground rounded-lg text-sm font-medium hover:bg-accent disabled:opacity-50 transition-colors"
+            >
+              {bulkSummaryLoading
+                ? `Generating... (${bulkProgress.done}/${bulkProgress.total})`
+                : "Get AI Summary (All)"}
+            </button>
+          )}
+          <button
+            onClick={runPipeline}
+            disabled={step === "running"}
+            className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-sm"
+          >
+            {step === "running"
+              ? "Optimizing..."
+              : step === "done"
+              ? "Re-run Pipeline"
+              : "Run Full Pipeline"}
+          </button>
+        </div>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 rounded-md p-3 mb-4 text-sm">
+        <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4 mb-6 text-sm">
           {error}
         </div>
       )}
 
-      {(step === "running" || step === "explaining") && (
+      {step === "running" && (
         <div className="py-8">
-          {step === "running" && (
-            <div className="flex items-center gap-3 text-muted-foreground justify-center">
-              <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
-              Running optimization pipeline...
-            </div>
-          )}
-          {step === "explaining" && explainProgress && (
-            <div className="max-w-lg mx-auto space-y-3">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">
-                  Generating explanations... <span className="font-medium text-foreground">{explainProgress.currentOrder}</span>
-                </span>
-                <span className="font-mono text-xs">
-                  {explainProgress.completed}/{explainProgress.total}
-                  {explainProgress.failed > 0 && (
-                    <span className="text-red-500 ml-2">{explainProgress.failed} failed</span>
-                  )}
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-300 rounded-full ${
-                    explainProgress.failed > 0 ? "bg-yellow-500" : "bg-primary"
-                  }`}
-                  style={{ width: `${(explainProgress.completed / explainProgress.total) * 100}%` }}
-                />
-              </div>
-              {explainProgress.status === "failed" && explainProgress.failReason && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-md p-3 text-xs">
-                  <span className="font-medium">First call failed — aborting:</span> {explainProgress.failReason}
-                </div>
-              )}
-            </div>
-          )}
+          <div className="flex items-center gap-3 text-muted-foreground justify-center">
+            <div className="animate-spin w-5 h-5 border-2 border-primary border-t-transparent rounded-full" />
+            Running optimization pipeline...
+          </div>
         </div>
       )}
 
-      {result && (step === "done" || step === "explaining") && (
+      {result && step === "done" && (
         <div className="space-y-6">
           {/* Summary Banner */}
           <div className="bg-card border border-border rounded-lg p-4 flex items-center gap-6">
@@ -179,17 +241,52 @@ export default function DispatchPage() {
           </div>
 
           {selectedOrder && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <EligibilityPanel data={result.eligibility[selectedOrder]} />
-              <ScoringPanel data={result.scoring[selectedOrder]} />
-              <CrewsPanel data={result.crews[selectedOrder]} />
-              <AssignmentPanel
-                orderId={selectedOrder}
-                assignments={result.assignments[selectedOrder]}
-                scoring={result.scoring[selectedOrder]}
-                explanation={explanations?.perOrder[selectedOrder]}
-              />
-            </div>
+            <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <EligibilityPanel data={result.eligibility[selectedOrder]} />
+                <ScoringPanel data={result.scoring[selectedOrder]} />
+                <CrewsPanel data={result.crews[selectedOrder]} />
+                <AssignmentPanel
+                  orderId={selectedOrder}
+                  assignments={result.assignments[selectedOrder]}
+                  scoring={result.scoring[selectedOrder]}
+                />
+              </div>
+
+              {/* AI Explanation — full width, compact */}
+              {!explanations?.perOrder[selectedOrder] && orderSummaryLoading !== selectedOrder && (
+                <div className="flex justify-start">
+                  <button
+                    onClick={() => requestOrderSummary(selectedOrder)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-accent text-primary rounded-lg text-xs font-medium hover:bg-orange-100 transition-colors border border-border"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                    </svg>
+                    Get AI Summary
+                  </button>
+                </div>
+              )}
+
+              {!explanations?.perOrder[selectedOrder] && orderSummaryLoading === selectedOrder && (
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <div className="animate-spin w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full" />
+                  Generating summary...
+                </div>
+              )}
+
+              {explanations?.perOrder[selectedOrder] && (
+                <div className="bg-card border border-border rounded-lg p-5">
+                  <div className="flex items-center gap-1.5 mb-3">
+                    <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span className="text-xs font-semibold text-blue-700">AI Explanation — {selectedOrder}</span>
+                  </div>
+                  <div className="prose prose-sm max-w-none text-sm text-muted-foreground leading-relaxed columns-1 lg:columns-2 gap-8" dangerouslySetInnerHTML={{ __html: renderMarkdown(explanations.perOrder[selectedOrder]) }} />
+                </div>
+              )}
+            </>
           )}
 
           {/* Full Assignment Matrix */}
@@ -207,128 +304,6 @@ export default function DispatchPage() {
       )}
     </div>
   );
-}
-
-async function generateExplanations(
-  data: PipelineResponse,
-  onProgress: (progress: ExplanationProgress) => void,
-): Promise<ExplanationData | null> {
-  const orderIds = Object.keys(data.assignments).sort();
-  const total = orderIds.length + 1;
-  let completed = 0;
-  let failed = 0;
-
-  const assignmentSummary = Object.entries(data.assignments)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([orderId, crew]) => {
-      const lead = crew.find((a) => a.role === "lead");
-      const members = crew.filter((a) => a.role === "member");
-      return `${orderId}: Lead=${lead?.personnel_name} (score ${lead?.individual_score.toFixed(1)}), Members=[${members.map((m) => `${m.personnel_name} (score ${m.individual_score.toFixed(1)})`).join(", ")}]`;
-    })
-    .join("\n");
-
-  const context = {
-    total_score: data.total_score,
-    status: data.status,
-    solve_time_ms: data.solve_time_ms,
-    assignments: data.assignments,
-    scoring_summary: Object.fromEntries(
-      Object.entries(data.scoring).map(([orderId, scoring]) => [
-        orderId,
-        {
-          top_leads: scoring.scored_leads.slice(0, 3).map((s) => ({
-            name: s.personnel_name, score: s.score, type: s.personnel_type, breakdown: s.breakdown,
-          })),
-          top_members: scoring.scored_members.slice(0, 5).map((s) => ({
-            name: s.personnel_name, score: s.score, type: s.personnel_type, breakdown: s.breakdown,
-          })),
-        },
-      ])
-    ),
-  };
-
-  // Step 1: Generate verdict (fail fast if this fails)
-  onProgress({ completed: 0, failed: 0, total, currentOrder: "verdict", status: "running" });
-  let verdict = "";
-  try {
-    const verdictResp = await api.askCopilot(
-      `Provide a comprehensive final verdict for this dispatch optimization run. Explain the overall strategy the optimizer used, why certain personnel appeared in multiple consideration sets, and what trade-offs were made. Here is the full assignment plan:\n\n${assignmentSummary}\n\nTotal score: ${data.total_score.toFixed(1)}, Status: ${data.status}, Solve time: ${data.solve_time_ms}ms.\n\nProvide:\n1. Overall optimization strategy summary\n2. Key trade-offs made (who was assigned where and why that was globally optimal)\n3. Any notable constraints that shaped the result (overlapping time windows, driver requirements, composition rules)\n4. Score distribution analysis`,
-      undefined,
-      context
-    );
-    verdict = verdictResp.answer;
-    if (verdict.includes("Error calling Gemini:")) {
-      onProgress({ completed: 0, failed: 1, total, currentOrder: "verdict", status: "failed", failReason: verdict.split("\n")[0] });
-      return { verdict, perOrder: {} };
-    }
-    completed = 1;
-    onProgress({ completed, failed, total, currentOrder: orderIds[0], status: "running" });
-  } catch (e) {
-    const reason = e instanceof Error ? e.message : "Unknown error";
-    onProgress({ completed: 0, failed: 1, total, currentOrder: "verdict", status: "failed", failReason: reason });
-    return null;
-  }
-
-  // Step 2: Generate per-order explanations
-  const perOrder: Record<string, string> = {};
-
-  for (let i = 0; i < orderIds.length; i += 2) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 1500));
-    const batch = orderIds.slice(i, i + 2);
-    const promises = batch.map(async (orderId) => {
-      const crew = data.assignments[orderId];
-      const scoring = data.scoring[orderId];
-      const lead = crew.find((a) => a.role === "lead");
-      const members = crew.filter((a) => a.role === "member");
-
-      const leadScoring = scoring?.scored_leads.find(
-        (s) => s.personnel_id === lead?.personnel_id
-      );
-      const memberScorings = members.map((m) =>
-        scoring?.scored_members.find((s) => s.personnel_id === m.personnel_id)
-      );
-
-      const orderContext = {
-        ...context,
-        current_order: orderId,
-        assigned_lead: lead
-          ? { name: lead.personnel_name, score: lead.individual_score, breakdown: leadScoring?.breakdown, type: leadScoring?.personnel_type }
-          : null,
-        assigned_members: members.map((m, idx) => ({
-          name: m.personnel_name, score: m.individual_score, breakdown: memberScorings[idx]?.breakdown, type: memberScorings[idx]?.personnel_type,
-        })),
-        alternative_leads: scoring?.scored_leads.filter((s) => s.personnel_id !== lead?.personnel_id).slice(0, 3).map((s) => ({ name: s.personnel_name, score: s.score, breakdown: s.breakdown })),
-        alternative_members: scoring?.scored_members.filter((s) => !members.find((m) => m.personnel_id === s.personnel_id)).slice(0, 3).map((s) => ({ name: s.personnel_name, score: s.score, breakdown: s.breakdown })),
-      };
-
-      try {
-        const resp = await api.askCopilot(
-          `For service order ${orderId}, provide a detailed explanation of the crew assignment. Explain:\n\n1. **Why the Lead was chosen**: ${lead?.personnel_name} was selected as lead with score ${lead?.individual_score.toFixed(1)}. Break down which scoring factors gave them the edge.\n\n2. **Why each Member was chosen**: For each member (${members.map((m) => m.personnel_name).join(", ")}), explain what made them the best fit.\n\n3. **Why alternatives were NOT chosen**: Who else was considered and why they scored lower.\n\n4. **Crew composition validation**: How this crew satisfies journeyman/apprentice ratio and driver requirements.\n\nBe specific with numbers and factor names.`,
-          undefined,
-          orderContext
-        );
-        const answer = resp.answer;
-        if (answer.includes("Error calling Gemini:")) {
-          return { orderId, explanation: answer, isError: true };
-        }
-        return { orderId, explanation: answer, isError: false };
-      } catch {
-        return { orderId, explanation: "Unable to generate explanation for this order.", isError: true };
-      }
-    });
-
-    const results = await Promise.all(promises);
-    for (const { orderId, explanation, isError } of results) {
-      perOrder[orderId] = explanation;
-      completed++;
-      if (isError) failed++;
-    }
-
-    const nextOrder = orderIds[i + 2] || orderIds[orderIds.length - 1];
-    onProgress({ completed, failed, total, currentOrder: nextOrder, status: "running" });
-  }
-
-  return { verdict, perOrder };
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -407,7 +382,7 @@ function CrewsPanel({ data }: { data?: { crews: CrewCandidate[]; count: number }
             <span className="text-muted-foreground">+</span>
             <span className="truncate flex-1">{crew.member_names.join(", ")}</span>
             <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{crew.total_score.toFixed(0)}</span>
-            <span className="text-muted-foreground">{crew.journeyman_count}J/{crew.apprentice_count}A</span>
+            <span className="text-muted-foreground">{crew.tc_count}TC/{crew.apprentice_count}A</span>
           </div>
         ))}
       </div>
@@ -415,7 +390,7 @@ function CrewsPanel({ data }: { data?: { crews: CrewCandidate[]; count: number }
   );
 }
 
-function AssignmentPanel({ orderId, assignments, scoring, explanation }: { orderId: string; assignments?: Assignment[]; scoring?: ScoringResponse; explanation?: string }) {
+function AssignmentPanel({ orderId, assignments, scoring }: { orderId: string; assignments?: Assignment[]; scoring?: ScoringResponse }) {
   if (!assignments) return null;
 
   return (
@@ -457,18 +432,6 @@ function AssignmentPanel({ orderId, assignments, scoring, explanation }: { order
           );
         })}
       </div>
-
-      {explanation && (
-        <div className="border-t border-border pt-3 mt-3">
-          <div className="flex items-center gap-1.5 mb-2">
-            <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-xs font-semibold text-blue-700">AI Explanation</span>
-          </div>
-          <div className="prose prose-xs max-w-none text-xs text-muted-foreground leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(explanation) }} />
-        </div>
-      )}
     </div>
   );
 }

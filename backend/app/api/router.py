@@ -11,7 +11,6 @@ from app.api.crews import router as crews_router
 from app.api.optimization import router as optimization_router
 from app.api.copilot import router as copilot_router
 from app.api.config import router as config_router
-from app.api.llm_trial import router as llm_trial_router
 
 api_router = APIRouter(prefix="/api")
 
@@ -25,4 +24,3 @@ api_router.include_router(crews_router, tags=["Crews"])
 api_router.include_router(optimization_router, tags=["Optimization"])
 api_router.include_router(copilot_router, tags=["Copilot"])
 api_router.include_router(config_router, tags=["Config"])
-api_router.include_router(llm_trial_router, tags=["LLM Trial"])

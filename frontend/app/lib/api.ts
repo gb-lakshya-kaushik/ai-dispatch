@@ -38,15 +38,13 @@ export const api = {
       body: JSON.stringify(weights),
     }),
   resetData: () => fetchApi<{ status: string }>("/api/data/reset", { method: "POST" }),
-  runLlmTrial: () =>
-    fetchApi<LlmTrialResponse>("/api/dispatch/llm-trial", { method: "POST" }),
 };
 
 // Types
 export interface Personnel {
   id: string;
   name: string;
-  type: "journeyman" | "apprentice";
+  type: "TC" | "apprentice";
   hourly_rate: number;
   hours_worked_ytd: number;
   is_available: boolean;
@@ -124,7 +122,7 @@ export interface CrewCandidate {
   member_names: string[];
   driver_id: string | null;
   total_score: number;
-  journeyman_count: number;
+  tc_count: number;
   apprentice_count: number;
 }
 
@@ -173,16 +171,4 @@ export interface Weights {
   hour_balancing: number;
   cost_efficiency: number;
   skill_match: number;
-}
-
-export interface LlmTrialResponse {
-  run_id: string;
-  status: string;
-  total_score: number;
-  solve_time_ms: number;
-  reasoning: string;
-  eligibility: Record<string, EligibilityResponse>;
-  scoring: Record<string, ScoringResponse>;
-  crews: Record<string, CrewResponse>;
-  assignments: Record<string, Assignment[]>;
 }

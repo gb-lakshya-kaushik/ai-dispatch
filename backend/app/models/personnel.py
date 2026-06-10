@@ -38,7 +38,7 @@ class Personnel(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    type: Mapped[str] = mapped_column(String, nullable=False)  # 'journeyman' or 'apprentice'
+    type: Mapped[str] = mapped_column(String, nullable=False)  # 'TC' or 'apprentice'
     hourly_rate: Mapped[float] = mapped_column(Float, nullable=False)
     hours_worked_ytd: Mapped[float] = mapped_column(Float, default=0)
     is_available: Mapped[bool] = mapped_column(Boolean, default=True)

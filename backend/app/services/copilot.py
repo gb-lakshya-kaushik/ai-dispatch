@@ -1,8 +1,9 @@
-"""GPT-5 Copilot service for explaining optimization decisions."""
+"""Gemini Copilot via Vertex AI — explains optimization decisions."""
 import asyncio
 import json
 
-from openai import AsyncOpenAI
+from google import genai
+from google.genai import types
 
 from app.config import settings
 
@@ -24,7 +25,25 @@ crew compositions, constraint violations, and rejection reasons."""
 
 class CopilotService:
     def __init__(self):
-        self.client = AsyncOpenAI(api_key=settings.openai_api_key) if settings.openai_api_key else None
+        self.client = None
+        if settings.vertex_ai and settings.vertex_ai_api_key:
+            location = settings.vertex_ai_location or "us-central1"
+            base_url = (
+                "https://aiplatform.googleapis.com/"
+                if location == "global"
+                else f"https://{location}-aiplatform.googleapis.com/"
+            )
+            self.client = genai.Client(
+                vertexai=True,
+                api_key=settings.vertex_ai_api_key,
+                http_options=types.HttpOptions(base_url=base_url),
+            )
+        elif settings.vertex_ai and settings.vertex_ai_project:
+            self.client = genai.Client(
+                vertexai=True,
+                project=settings.vertex_ai_project,
+                location=settings.vertex_ai_location,
+            )
 
     async def ask(self, question: str, context: dict) -> str:
         if not self.client:
@@ -34,24 +53,24 @@ class CopilotService:
         max_retries = 3
         for attempt in range(max_retries + 1):
             try:
-                response = await self.client.chat.completions.create(
-                    model=settings.openai_model,
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": prompt},
-                    ],
+                config = types.GenerateContentConfig(
                     temperature=0.3,
-                    max_completion_tokens=8000,
+                    max_output_tokens=8000,
                 )
-                content = response.choices[0].message.content if response.choices else None
-                if content:
-                    return content
-                raise RuntimeError("OpenAI returned an empty response")
+                response = await self.client.aio.models.generate_content(
+                    model=settings.gemini_model,
+                    contents=[SYSTEM_PROMPT, prompt],
+                    config=config,
+                )
+                text = response.text
+                if not text or not text.strip():
+                    raise RuntimeError("Gemini returned an empty response")
+                return text
             except Exception as e:
                 if ("429" in str(e) or "404" in str(e)) and attempt < max_retries:
                     await asyncio.sleep(2 ** attempt * 2)
                     continue
-                return f"Error calling GPT-5: {str(e)}\n\n{self._fallback_response(question, context)}"
+                return f"Error calling Gemini: {str(e)}\n\n{self._fallback_response(question, context)}"
 
     def _build_prompt(self, question: str, context: dict) -> str:
         context_str = json.dumps(context, indent=2, default=str)
@@ -87,7 +106,7 @@ Provide a clear, concise explanation."""
             f"- **Skill match** contributed the highest weight (30 pts max)\n"
             f"- **Hour balancing** favored personnel with fewer YTD hours\n"
             f"- **No constraint violations** — all certifications and composition rules met\n\n"
-            f"*Configure OPENAI_API_KEY for detailed, natural-language explanations.*"
+            f"*Configure VERTEX_AI_API_KEY for detailed, natural-language explanations.*"
         )
 
     def _explain_rejection(self, question: str, context: dict) -> str:
@@ -100,7 +119,7 @@ Provide a clear, concise explanation."""
             f"- Insufficient driver qualification for the assigned vehicle\n"
             f"- Already assigned to an overlapping service order\n\n"
             f"Rejection details: {json.dumps(rejections, indent=2)}\n\n"
-            f"*Configure OPENAI_API_KEY for detailed explanations.*"
+            f"*Configure VERTEX_AI_API_KEY for detailed explanations.*"
         )
 
     def _show_alternatives(self, context: dict) -> str:
@@ -109,7 +128,7 @@ Provide a clear, concise explanation."""
             f"The system generated up to 10 valid crew combinations per order, "
             f"ranked by score. The optimizer selected the combination that maximizes "
             f"the *global* score across all orders simultaneously.\n\n"
-            f"*Configure OPENAI_API_KEY for detailed alternative analysis.*"
+            f"*Configure VERTEX_AI_API_KEY for detailed alternative analysis.*"
         )
 
     def _explain_whatif(self, question: str, context: dict) -> str:
@@ -118,7 +137,7 @@ Provide a clear, concise explanation."""
             f"To answer what-if questions, the system would re-run the optimization "
             f"with modified constraints (e.g., removing a person from the pool). "
             f"The score difference shows the impact.\n\n"
-            f"*Configure OPENAI_API_KEY for interactive what-if analysis.*"
+            f"*Configure VERTEX_AI_API_KEY for interactive what-if analysis.*"
         )
 
     def _general_summary(self, context: dict) -> str:

@@ -104,12 +104,12 @@ class OptimizationEngine:
                 if drivers:
                     model.add(sum(x[p_id, o.id] for p_id in drivers) >= 1)
 
-        # C8: Apprentice/Journeyman ratio
+        # C8: Apprentice/TC ratio
         for o in orders:
             rule = APPRENTICE_RATIO_RULES.get(o.crew_size)
             if rule:
                 min_j, max_a = rule
-                journeymen = [p_id for p_id in p_ids if personnel_map[p_id].type == "journeyman"]
+                journeymen = [p_id for p_id in p_ids if personnel_map[p_id].type == "TC"]
                 apprentices = [p_id for p_id in p_ids if personnel_map[p_id].type == "apprentice"]
                 model.add(sum(x[p_id, o.id] for p_id in journeymen) >= min_j)
                 model.add(sum(x[p_id, o.id] for p_id in apprentices) <= max_a)

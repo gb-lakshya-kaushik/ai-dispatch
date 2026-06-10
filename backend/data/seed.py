@@ -119,7 +119,7 @@ def _seed_personnel(db: Session):
         tc_id = f"TC{i+1:03d}"
         name = names_pool[i]
         is_journeyman = i < 180
-        tc_type = "journeyman" if is_journeyman else "apprentice"
+        tc_type = "TC" if is_journeyman else "apprentice"
         rate = round(RNG.uniform(35, 55), 2) if is_journeyman else round(RNG.uniform(22, 34), 2)
         hours = RNG.randint(400, 2000)
         driver_class = RNG.choices(DRIVER_CLASSES, weights=DRIVER_WEIGHTS, k=1)[0]
@@ -147,7 +147,7 @@ def _seed_personnel(db: Session):
             db.add(PersonnelSkill(personnel_id=tc_id, skill_id=skill_map["General Assistant"].id))
 
     db.flush()
-    print(f"  -> 300 personnel created (180 journeymen, 120 apprentices)")
+    print(f"  -> 300 personnel created (180 TCs, 120 apprentices)")
 
 
 def _seed_customers(db: Session):

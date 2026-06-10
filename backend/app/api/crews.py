@@ -21,7 +21,7 @@ def build_crews(order_id: str, db: Session = Depends(get_db)):
             member_names=[m.personnel.name for m in c.members],
             driver_id=c.driver_id,
             total_score=c.total_score,
-            journeyman_count=c.journeyman_count,
+            tc_count=c.tc_count,
             apprentice_count=c.apprentice_count,
         )
         for c in crews

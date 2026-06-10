@@ -49,23 +49,23 @@ export default function CopilotPage() {
 
   return (
     <div className="max-w-4xl h-[calc(100vh-3rem)] flex flex-col">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold">AI Copilot</h1>
-        <p className="text-muted-foreground text-sm">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold tracking-tight">AI Copilot</h1>
+        <p className="text-muted-foreground text-sm mt-1">
           Ask questions about dispatch decisions and optimization results
         </p>
       </div>
 
       {/* Suggested questions */}
       {messages.length === 0 && (
-        <div className="mb-4">
-          <p className="text-xs text-muted-foreground mb-2">Suggested questions:</p>
+        <div className="mb-6">
+          <p className="text-xs text-muted-foreground mb-2 font-medium">Suggested questions:</p>
           <div className="flex flex-wrap gap-2">
             {suggestedQuestions.map((q) => (
               <button
                 key={q}
                 onClick={() => sendMessage(q)}
-                className="px-3 py-1.5 bg-muted text-muted-foreground rounded-md text-xs hover:bg-accent transition-colors"
+                className="px-3 py-1.5 bg-accent text-muted-foreground rounded-lg text-xs hover:bg-orange-100 hover:text-orange-700 transition-colors border border-border"
               >
                 {q}
               </button>
@@ -121,13 +121,13 @@ export default function CopilotPage() {
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !loading && sendMessage(input)}
           placeholder="Ask about dispatch decisions..."
-          className="flex-1 px-4 py-2 border border-border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+          className="flex-1 px-4 py-2.5 border border-border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary"
           disabled={loading}
         />
         <button
           onClick={() => sendMessage(input)}
           disabled={loading || !input.trim()}
-          className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
+          className="px-5 py-2.5 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-orange-600 disabled:opacity-50 transition-colors"
         >
           Send
         </button>

@@ -4,11 +4,11 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     database_url: str = f"sqlite:///{Path(__file__).parent.parent / 'data' / 'dispatch.db'}"
-    openai_api_key: str = ""
-    openai_model: str = "gpt-5"
+    vertex_ai: bool = False
     vertex_ai_api_key: str = ""
     vertex_ai_project: str = "tmi-project-497809"
     vertex_ai_location: str = "global"
+    gemini_model: str = "gemini-2.5-pro"
     cors_origins: list[str] = ["http://localhost:3000"]
     scoring_weights: dict[str, float] = {
         "customer_preference": 20.0,

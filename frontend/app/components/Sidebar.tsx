@@ -11,7 +11,6 @@ const nav = [
   { href: "/dispatch", label: "Dispatch Flow", icon: "play", children: [
     { href: "/dispatch", label: "Pipeline" },
     { href: "/dispatch/summary", label: "Summary" },
-    { href: "/dispatch/llm-trial", label: "LLM Trial" },
   ]},
   { href: "/copilot", label: "AI Copilot", icon: "message" },
 ];
@@ -30,12 +29,19 @@ export function Sidebar() {
   const hasResult = step === "done";
 
   return (
-    <aside className="w-64 bg-card border-r border-border flex flex-col">
-      <div className="p-4 border-b border-border">
-        <h1 className="text-lg font-bold text-primary">AI Dispatch</h1>
-        <p className="text-xs text-muted-foreground">Workforce Optimization</p>
+    <aside className="w-64 bg-sidebar-bg flex flex-col">
+      <div className="p-5 border-b border-white/10">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 bg-sidebar-active rounded-lg flex items-center justify-center">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+          </div>
+          <div>
+            <h1 className="text-base font-bold text-sidebar-text">AI Dispatch</h1>
+            <p className="text-[10px] text-sidebar-muted tracking-wide uppercase">Workforce Optimization</p>
+          </div>
+        </div>
       </div>
-      <nav className="flex-1 p-3 space-y-1">
+      <nav className="flex-1 px-3 py-4 space-y-1">
         {nav.map((item) => {
           const isDispatch = item.href === "/dispatch";
           const active = isDispatch
@@ -46,10 +52,10 @@ export function Sidebar() {
             <div key={item.href}>
               <Link
                 href={item.href}
-                className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                   active
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                    ? "bg-sidebar-active text-white shadow-lg shadow-orange-500/20"
+                    : "text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text"
                 }`}
               >
                 {icons[item.icon]}
@@ -57,7 +63,7 @@ export function Sidebar() {
               </Link>
               {/* Sub-nav for dispatch */}
               {isDispatch && active && item.children && (
-                <div className="ml-8 mt-1 space-y-0.5">
+                <div className="ml-8 mt-1.5 space-y-0.5">
                   {item.children.map((child) => {
                     const childActive = pathname === child.href;
                     const disabled = child.href === "/dispatch/summary" && !hasResult;
@@ -65,12 +71,12 @@ export function Sidebar() {
                       <Link
                         key={child.href}
                         href={disabled ? "#" : child.href}
-                        className={`block px-3 py-1.5 rounded text-xs font-medium transition-colors ${
+                        className={`block px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
                           childActive
-                            ? "bg-primary/20 text-primary-foreground"
+                            ? "bg-white/10 text-white"
                             : disabled
-                            ? "text-muted-foreground/40 cursor-not-allowed"
-                            : "text-primary-foreground/70 hover:bg-primary/10"
+                            ? "text-sidebar-muted/40 cursor-not-allowed"
+                            : "text-sidebar-muted hover:text-sidebar-text hover:bg-white/5"
                         }`}
                         onClick={(e) => disabled && e.preventDefault()}
                       >
@@ -87,18 +93,18 @@ export function Sidebar() {
 
       {/* Start New button */}
       {hasResult && (
-        <div className="px-3 pb-2">
+        <div className="px-3 pb-3">
           <button
             onClick={reset}
-            className="w-full px-3 py-2 border border-border rounded-md text-xs font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+            className="w-full px-3 py-2.5 border border-white/10 rounded-lg text-xs font-medium text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-text transition-colors"
           >
             Start New Dispatch
           </button>
         </div>
       )}
 
-      <div className="p-4 border-t border-border text-xs text-muted-foreground">
-        Traffic Management POC v0.1
+      <div className="px-5 py-4 border-t border-white/10 text-[10px] text-sidebar-muted">
+        Traffic Management Inc. — v0.1
       </div>
     </aside>
   );

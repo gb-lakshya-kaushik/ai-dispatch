@@ -119,7 +119,7 @@ class CrewCandidateSchema(BaseModel):
     member_names: list[str]
     driver_id: str | None
     total_score: float
-    journeyman_count: int
+    tc_count: int
     apprentice_count: int
 
 
