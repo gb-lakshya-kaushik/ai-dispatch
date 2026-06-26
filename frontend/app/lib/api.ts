@@ -47,7 +47,7 @@ export interface Personnel {
   type: "TC" | "apprentice";
   hourly_rate: number;
   hours_worked_ytd: number;
-  is_available: boolean;
+  status: string;
   driver_class: string | null;
   skills: { id: number; name: string }[];
   certifications: { id: number; name: string }[];

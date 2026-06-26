@@ -10,6 +10,7 @@ from app.database import engine, SessionLocal, Base
 from app.models import (
     Personnel, Skill, Certification, PersonnelSkill, PersonnelCertification,
     Customer, CustomerPreference, Vehicle, ServiceOrder, ScoringWeight, JobHistory,
+    ClosureSkillRule, VehicleDriverRule,
 )
 
 RNG = random.Random(42)
@@ -46,15 +47,13 @@ LAST_NAMES = [
 ]
 
 LEAD_SKILLS = [
-    "Installer Flagging Operation",
-    "Installer Single Lane",
-    "Installer Multi Lane Closure",
-    "Installer Road Closure",
-    "Installer Shoulder Closure",
-    "Installer Lane Shift",
+    "Installer Flagging Operation", "Installer Single Lane", "Installer Multi Lane Closure",
+    "Installer Road Closure", "Installer Shoulder Closure", "Installer Lane Shift",
+    "TMA Operator Skill", "Installer High Speed Single Lane Closure",
+    "General Freeway Assistant Skill", "Cone Truck Operator Skill"
 ]
 
-CLOSURE_TYPES = ["flagging", "single_lane", "multi_lane", "road_closure", "shoulder_closure", "lane_shift"]
+CLOSURE_TYPES = ["flagging", "single_lane", "multi_lane", "road_closure", "shoulder_closure", "lane_shift", "freeway_closure", "high_speed_single_lane"]
 
 DRIVER_CLASSES = [None, "DT", "D1", "D2", "D3", "D4"]
 DRIVER_WEIGHTS = [20, 25, 20, 15, 12, 8]
@@ -74,6 +73,7 @@ def seed_database():
         _seed_service_orders(db)
         _seed_scoring_weights(db)
         _seed_job_history(db)
+        _seed_dynamic_rules(db)
         db.commit()
         print("Database seeded: 300 personnel, 60 orders, 10 customers, 10 vehicles.")
     except Exception as e:
@@ -98,6 +98,7 @@ def _seed_certifications(db: Session):
         "DOT Medical Card",
         "Chauffeur License",
         "Light Tower Certification",
+        "Freeway Certification",
     ]
     for name in certs:
         db.add(Certification(name=name))
@@ -123,11 +124,15 @@ def _seed_personnel(db: Session):
         rate = round(RNG.uniform(35, 55), 2) if is_journeyman else round(RNG.uniform(22, 34), 2)
         hours = RNG.randint(400, 2000)
         driver_class = RNG.choices(DRIVER_CLASSES, weights=DRIVER_WEIGHTS, k=1)[0]
+        seniority = RNG.randint(1, 5) if is_journeyman else 1
+        is_avail = RNG.random() > 0.1
+        status = "Active" if is_avail else RNG.choice(["DND", "LOA", "PTO"])
 
         p = Personnel(
             id=tc_id, name=name, type=tc_type,
             hourly_rate=rate, hours_worked_ytd=hours,
-            is_available=True, driver_class=driver_class,
+            status=status, driver_class=driver_class,
+            seniority=seniority,
         )
         db.add(p)
         db.flush()
@@ -240,15 +245,26 @@ def _seed_service_orders(db: Session):
             veh = RNG.choice(vehicle_ids) if has_vehicle else None
             loc = RNG.choice(locations)
             priority = RNG.randint(1, 10)
+            is_prevailing_wage = RNG.random() < 0.2
+            operating_state = RNG.choice(["CA", "WA", "MI", "TX"])
+            # Generate occasional rollovers
+            rollover_from = None
+            if order_idx > 10 and RNG.random() < 0.15:
+                rollover_from = f"SO{(order_idx - RNG.randint(1, 10)):03d}"
 
-            start_time = f"2026-06-10T{slot_start:02d}:00:00"
-            end_time = f"2026-06-10T{slot_end:02d}:00:00"
+            from datetime import date
+            today_str = date.today().isoformat()
+            start_time = f"{today_str}T{slot_start:02d}:00:00"
+            end_time = f"{today_str}T{slot_end:02d}:00:00"
 
             db.add(ServiceOrder(
                 id=oid, customer_id=cust, closure_type=closure,
                 crew_size=crew_size, leads_required=1, vehicle_id=veh,
                 location=loc, start_time=start_time, end_time=end_time,
                 priority=priority, notes=None,
+                is_prevailing_wage=is_prevailing_wage,
+                rollover_from_id=rollover_from,
+                operating_state=operating_state,
             ))
 
     db.flush()
@@ -282,7 +298,8 @@ def _seed_job_history(db: Session):
         month = RNG.choice(months)
         day = RNG.choice(days)
         date = f"2026-{month}-{day}"
-        rating = round(RNG.uniform(3.5, 5.0), 1)
+        # M1 FIX: Use full 1.0–5.0 range to allow testing of poor-performer penalization
+        rating = round(RNG.uniform(1.0, 5.0), 1)
         db.add(JobHistory(
             personnel_id=pid, closure_type=closure,
             customer_id=cust, completed_date=date,
@@ -291,6 +308,36 @@ def _seed_job_history(db: Session):
 
     db.flush()
     print(f"  -> 500 job history entries created")
+
+
+def _seed_dynamic_rules(db: Session):
+    closure_rules = {
+        "flagging": ("Installer Flagging Operation", "General Assistant"),
+        "single_lane": ("Installer Single Lane", "General Assistant"),
+        "multi_lane": ("Installer Multi Lane Closure", "General Assistant"),
+        "road_closure": ("Installer Road Closure", "General Assistant"),
+        "shoulder_closure": ("Installer Shoulder Closure", "General Assistant"),
+        "lane_shift": ("Installer Lane Shift", "General Assistant"),
+        "freeway_closure": ("TMA Operator Skill", "General Assistant"),
+        "high_speed_single_lane": ("Installer High Speed Single Lane Closure", "General Assistant"),
+    }
+    for closure, (lead, member) in closure_rules.items():
+        db.add(ClosureSkillRule(closure_type=closure, lead_skill=lead, member_skill=member))
+
+    driver_rules = {
+        "Service Truck": "DT",
+        "Service Truck + FAS": "D1",
+        "Service Truck + Light Tower": "D1+ & LT",
+        "Stakebed": "D2",
+        "TMA Non-Freeway": "D3",
+        "TMA Freeway": "D4",
+        "AFAD": "D1+ & AFAD Cert",
+    }
+    for vtype, dclass in driver_rules.items():
+        db.add(VehicleDriverRule(vehicle_type=vtype, required_driver_class=dclass))
+
+    db.flush()
+    print(f"  -> Dynamic rule tables seeded")
 
 
 if __name__ == "__main__":

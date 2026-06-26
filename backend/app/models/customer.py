@@ -12,6 +12,13 @@ class CustomerPreference(Base):
     preference_level: Mapped[int] = mapped_column(Integer, default=1)
 
 
+class CustomerRequiredCertification(Base):
+    __tablename__ = "customer_required_certifications"
+
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), primary_key=True)
+    certification_id: Mapped[int] = mapped_column(ForeignKey("certifications.id"), primary_key=True)
+
+
 class Customer(Base):
     __tablename__ = "customers"
 
@@ -21,4 +28,7 @@ class Customer(Base):
 
     preferred_personnel: Mapped[list["CustomerPreference"]] = relationship(
         "CustomerPreference", lazy="joined"
+    )
+    required_certifications: Mapped[list["CustomerRequiredCertification"]] = relationship(
+        "CustomerRequiredCertification", lazy="joined"
     )

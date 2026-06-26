@@ -101,8 +101,8 @@ def run_full_pipeline(db: Session = Depends(get_db)):
     for order_id, crews in result.crews.items():
         crew_schemas = [
             CrewCandidateSchema(
-                lead_id=c.lead.personnel.id,
-                lead_name=c.lead.personnel.name,
+                lead_ids=[l.personnel.id for l in c.leads],
+                lead_names=[l.personnel.name for l in c.leads],
                 member_ids=[m.personnel.id for m in c.members],
                 member_names=[m.personnel.name for m in c.members],
                 driver_id=c.driver_id,

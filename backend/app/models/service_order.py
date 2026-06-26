@@ -1,4 +1,4 @@
-from sqlalchemy import String, Integer, ForeignKey
+from sqlalchemy import String, Integer, Boolean, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -18,6 +18,10 @@ class ServiceOrder(Base):
     end_time: Mapped[str] = mapped_column(String, nullable=False)
     priority: Mapped[int] = mapped_column(Integer, default=5)
     notes: Mapped[str | None] = mapped_column(String, nullable=True)
+    is_prevailing_wage: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_journeyman_scale: Mapped[bool] = mapped_column(Boolean, default=False)
+    rollover_from_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    operating_state: Mapped[str] = mapped_column(String, default="CA")
 
     customer: Mapped["Customer"] = relationship("Customer", lazy="joined")
     vehicle: Mapped["Vehicle | None"] = relationship("Vehicle", lazy="joined")

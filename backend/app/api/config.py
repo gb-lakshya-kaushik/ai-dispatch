@@ -21,5 +21,8 @@ def update_weights(new_weights: WeightsSchema, db: Session = Depends(get_db)):
         row = db.query(ScoringWeight).filter_by(factor=factor).first()
         if row:
             row.weight = weight
+        else:
+            # H5 FIX: Insert new factor if it doesn't exist yet
+            db.add(ScoringWeight(factor=factor, weight=weight))
     db.commit()
     return new_weights

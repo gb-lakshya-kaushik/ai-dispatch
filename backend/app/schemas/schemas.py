@@ -23,8 +23,8 @@ class PersonnelSchema(BaseModel):
     type: str
     hourly_rate: float
     hours_worked_ytd: float
-    is_available: bool
-    driver_class: str | None
+    status: str
+    driver_class: str | None = None
     skills: list[SkillSchema]
     certifications: list[CertificationSchema]
 
@@ -113,8 +113,8 @@ class ScoringResponseSchema(BaseModel):
 
 # --- Crews ---
 class CrewCandidateSchema(BaseModel):
-    lead_id: str
-    lead_name: str
+    lead_ids: list[str]
+    lead_names: list[str]
     member_ids: list[str]
     member_names: list[str]
     driver_id: str | None

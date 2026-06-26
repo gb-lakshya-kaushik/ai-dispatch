@@ -39,10 +39,11 @@ class Personnel(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)  # 'TC' or 'apprentice'
-    hourly_rate: Mapped[float] = mapped_column(Float, nullable=False)
-    hours_worked_ytd: Mapped[float] = mapped_column(Float, default=0)
-    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    hourly_rate: Mapped[float] = mapped_column(Float, default=20.0)
+    hours_worked_ytd: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(String, default="Active")
     driver_class: Mapped[str | None] = mapped_column(String, nullable=True)  # DT, D1, D2, D3, D4
+    seniority: Mapped[int] = mapped_column(Integer, default=1)  # 1-5 scale (e.g., TC5)
 
     skills: Mapped[list["Skill"]] = relationship(
         "Skill", secondary="personnel_skills", lazy="joined"

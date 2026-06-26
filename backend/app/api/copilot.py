@@ -16,14 +16,15 @@ async def ask_copilot(request: CopilotRequest, db: Session = Depends(get_db)):
 
     if request.run_id:
         assignments = db.query(Assignment).filter_by(run_id=request.run_id).all()
-        context["assignments"] = {
-            a.service_order_id: {
+        # C3 FIX: Group all crew members per order instead of overwriting with last person
+        crew_by_order: dict = {}
+        for a in assignments:
+            crew_by_order.setdefault(a.service_order_id, []).append({
                 "personnel_id": a.personnel_id,
                 "role": a.role,
                 "score": a.individual_score,
-            }
-            for a in assignments
-        }
+            })
+        context["assignments"] = crew_by_order
 
     answer = await copilot.ask(request.question, context)
     return CopilotResponse(

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -15,4 +15,8 @@ def list_personnel(db: Session = Depends(get_db)):
 
 @router.get("/personnel/{personnel_id}", response_model=PersonnelSchema)
 def get_personnel(personnel_id: str, db: Session = Depends(get_db)):
-    return db.query(Personnel).filter_by(id=personnel_id).first()
+    # H4 FIX: Return 404 instead of 500 on missing personnel
+    p = db.query(Personnel).filter_by(id=personnel_id).first()
+    if p is None:
+        raise HTTPException(status_code=404, detail=f"Personnel '{personnel_id}' not found")
+    return p

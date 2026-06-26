@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -33,7 +33,10 @@ def list_service_orders(db: Session = Depends(get_db)):
 
 @router.get("/service-orders/{order_id}", response_model=ServiceOrderSchema)
 def get_service_order(order_id: str, db: Session = Depends(get_db)):
+    # H3 FIX: Return 404 instead of 500 on missing order
     o = db.query(ServiceOrder).filter_by(id=order_id).first()
+    if o is None:
+        raise HTTPException(status_code=404, detail=f"Service order '{order_id}' not found")
     return ServiceOrderSchema(
         id=o.id,
         customer_id=o.customer_id,

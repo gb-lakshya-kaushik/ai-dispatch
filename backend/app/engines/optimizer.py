@@ -1,17 +1,15 @@
 """OR-Tools CP-SAT Optimization Engine — finds optimal crew assignments across all service orders."""
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from ortools.sat.python import cp_model
 
 from app.models.personnel import Personnel
 from app.models.service_order import ServiceOrder
 from app.engines.rules import (
-    CLOSURE_TYPE_LEAD_SKILL,
-    REQUIRED_CERTIFICATION,
     APPRENTICE_RATIO_RULES,
-    driver_class_meets_requirement,
 )
+from app.engines.crew_builder import CrewCandidate
 
 
 @dataclass
@@ -20,6 +18,7 @@ class AssignmentResult:
     personnel_id: str
     role: str  # 'lead' or 'member'
     individual_score: float
+    crew_score: float
 
 
 @dataclass
@@ -38,90 +37,71 @@ class OptimizationEngine:
     def optimize(
         self,
         orders: list[ServiceOrder],
-        personnel: list[Personnel],
-        scores: dict[tuple[str, str], float],  # (personnel_id, order_id) -> score
-        eligible_leads: dict[str, set[str]],  # order_id -> set of personnel_ids
-        eligible_members: dict[str, set[str]],  # order_id -> set of personnel_ids
-        eligible_drivers: dict[str, set[str]],  # order_id -> set of personnel_ids
+        crews: dict[str, list[CrewCandidate]],
     ) -> OptimizationResult:
         model = cp_model.CpModel()
-
-        p_ids = [p.id for p in personnel]
         o_ids = [o.id for o in orders]
-        personnel_map = {p.id: p for p in personnel}
-        order_map = {o.id: o for o in orders}
 
-        # Decision variables: x[p_id, o_id] = 1 if person p assigned to order o
-        x: dict[tuple[str, str], cp_model.IntVar] = {}
-        for p_id in p_ids:
-            for o_id in o_ids:
-                x[p_id, o_id] = model.new_bool_var(f"x_{p_id}_{o_id}")
-
-        # Lead indicator: lead[p_id, o_id] = 1 if person p is lead on order o
-        lead: dict[tuple[str, str], cp_model.IntVar] = {}
-        for p_id in p_ids:
-            for o_id in o_ids:
-                lead[p_id, o_id] = model.new_bool_var(f"lead_{p_id}_{o_id}")
+        # y[o_id, c_idx] = 1 if crew c_idx is assigned to order o_id
+        y: dict[tuple[str, int], cp_model.IntVar] = {}
+        for o_id in o_ids:
+            if o_id in crews:
+                for c_idx in range(len(crews[o_id])):
+                    y[o_id, c_idx] = model.new_bool_var(f"y_{o_id}_{c_idx}")
 
         # --- CONSTRAINTS ---
 
-        # C1: No double-booking for overlapping orders
+        # C1: At most one crew per order (allows unassigned orders if conflicts exist)
+        unassigned_orders = []
+        for o_id in o_ids:
+            if o_id in crews and len(crews[o_id]) > 0:
+                model.add(sum(y[o_id, c_idx] for c_idx in range(len(crews[o_id]))) <= 1)
+            else:
+                unassigned_orders.append(o_id)
+
+        # C2: No double-booking overlapping orders for any person
         overlapping = self._find_overlapping_orders(orders)
-        for o1_id, o2_id in overlapping:
-            for p_id in p_ids:
-                model.add(x[p_id, o1_id] + x[p_id, o2_id] <= 1)
-
-        # C2: Crew size exactly met
-        for o in orders:
-            model.add(sum(x[p_id, o.id] for p_id in p_ids) == o.crew_size)
-
-        # C3: Exactly one lead per order
-        for o in orders:
-            model.add(sum(lead[p_id, o.id] for p_id in p_ids) == 1)
-
-        # C4: Lead must be assigned to the order
-        for p_id in p_ids:
-            for o_id in o_ids:
-                model.add(lead[p_id, o_id] <= x[p_id, o_id])
-
-        # C5: Only eligible leads can be lead
+        
+        # Precompute mapping: person -> order -> list of crew indices they are in
+        person_to_order_crews = {}
         for o_id in o_ids:
-            for p_id in p_ids:
-                if p_id not in eligible_leads.get(o_id, set()):
-                    model.add(lead[p_id, o_id] == 0)
+            if o_id in crews:
+                for c_idx, crew in enumerate(crews[o_id]):
+                    for p_id in crew.all_personnel_ids:
+                        if p_id not in person_to_order_crews:
+                            person_to_order_crews[p_id] = {}
+                        if o_id not in person_to_order_crews[p_id]:
+                            person_to_order_crews[p_id][o_id] = []
+                        person_to_order_crews[p_id][o_id].append(c_idx)
 
-        # C6: Only eligible personnel (leads + members) can be assigned
-        for o_id in o_ids:
-            eligible_for_order = eligible_leads.get(o_id, set()) | eligible_members.get(o_id, set())
-            for p_id in p_ids:
-                if p_id not in eligible_for_order:
-                    model.add(x[p_id, o_id] == 0)
+        overlapping_set = set(overlapping)
+        overlap_check = set()
+        for o1, o2 in overlapping_set:
+            overlap_check.add((o1, o2))
+            overlap_check.add((o2, o1))
 
-        # C7: Driver requirement — at least one qualified driver assigned
-        for o in orders:
-            if o.vehicle_id:
-                drivers = eligible_drivers.get(o.id, set())
-                if drivers:
-                    model.add(sum(x[p_id, o.id] for p_id in drivers) >= 1)
+        for p_id, order_map in person_to_order_crews.items():
+            p_orders = list(order_map.keys())
+            for i in range(len(p_orders)):
+                for j in range(i + 1, len(p_orders)):
+                    o1 = p_orders[i]
+                    o2 = p_orders[j]
+                    if (o1, o2) in overlap_check:
+                        model.add(
+                            sum(y[o1, c] for c in order_map[o1]) + 
+                            sum(y[o2, c] for c in order_map[o2]) <= 1
+                        )
 
-        # C8: Apprentice/TC ratio
-        for o in orders:
-            rule = APPRENTICE_RATIO_RULES.get(o.crew_size)
-            if rule:
-                min_j, max_a = rule
-                journeymen = [p_id for p_id in p_ids if personnel_map[p_id].type == "TC"]
-                apprentices = [p_id for p_id in p_ids if personnel_map[p_id].type == "apprentice"]
-                model.add(sum(x[p_id, o.id] for p_id in journeymen) >= min_j)
-                model.add(sum(x[p_id, o.id] for p_id in apprentices) <= max_a)
-
-        # --- OBJECTIVE: Maximize total weighted score ---
+        # --- OBJECTIVE: Maximize total weighted score * priority ---
         objective_terms = []
-        for p_id in p_ids:
-            for o_id in o_ids:
-                score = scores.get((p_id, o_id), 0.0)
-                int_score = int(score * 100)
-                if int_score > 0:
-                    objective_terms.append(x[p_id, o_id] * int_score)
+        order_priorities = {o.id: o.priority for o in orders}
+        for o_id in o_ids:
+            if o_id in crews:
+                priority = order_priorities.get(o_id, 1)
+                for c_idx, crew in enumerate(crews[o_id]):
+                    int_score = int(crew.total_score * 100)
+                    if int_score > 0:
+                        objective_terms.append(y[o_id, c_idx] * int_score * priority)
 
         model.maximize(sum(objective_terms))
 
@@ -130,7 +110,7 @@ class OptimizationEngine:
         solver.parameters.max_time_in_seconds = self.timeout_seconds
         status_code = solver.solve(model)
 
-        result = OptimizationResult()
+        result = OptimizationResult(unassigned_orders=unassigned_orders)
 
         if status_code in (cp_model.OPTIMAL, cp_model.FEASIBLE):
             result.status = "optimal" if status_code == cp_model.OPTIMAL else "feasible"
@@ -138,16 +118,36 @@ class OptimizationEngine:
             result.solve_time_ms = int(solver.wall_time * 1000)
 
             for o_id in o_ids:
-                result.assignments[o_id] = []
-                for p_id in p_ids:
-                    if solver.value(x[p_id, o_id]) == 1:
-                        role = "lead" if solver.value(lead[p_id, o_id]) == 1 else "member"
-                        result.assignments[o_id].append(AssignmentResult(
-                            service_order_id=o_id,
-                            personnel_id=p_id,
-                            role=role,
-                            individual_score=scores.get((p_id, o_id), 0.0),
-                        ))
+                if o_id in unassigned_orders:
+                    continue
+                assigned = False
+                for c_idx, crew in enumerate(crews[o_id]):
+                    if solver.value(y[o_id, c_idx]) == 1:
+                        assigned = True
+                        result.assignments[o_id] = []
+                        # Add Leads
+                        for lead in crew.leads:
+                            role = "driver" if crew.driver_id == lead.personnel.id else "lead"
+                            result.assignments[o_id].append(AssignmentResult(
+                                service_order_id=o_id,
+                                personnel_id=lead.personnel.id,
+                                role=role,
+                                individual_score=lead.score,
+                                crew_score=crew.total_score,
+                            ))
+                        # Add Members
+                        for member in crew.members:
+                            role = "driver" if crew.driver_id == member.personnel.id else "member"
+                            result.assignments[o_id].append(AssignmentResult(
+                                service_order_id=o_id,
+                                personnel_id=member.personnel.id,
+                                role=role,
+                                individual_score=member.score,
+                                crew_score=crew.total_score,
+                            ))
+                        break
+                if not assigned:
+                    result.unassigned_orders.append(o_id)
         else:
             result.status = "infeasible"
             result.unassigned_orders = o_ids
@@ -169,4 +169,7 @@ class OptimizationEngine:
         end1 = datetime.fromisoformat(e1)
         start2 = datetime.fromisoformat(s2)
         end2 = datetime.fromisoformat(e2)
-        return start1 < end2 and start2 < end1
+        
+        # Add 1 hour padding for travel time
+        padding = timedelta(hours=1)
+        return (start1 - padding) < end2 and (start2 - padding) < end1
