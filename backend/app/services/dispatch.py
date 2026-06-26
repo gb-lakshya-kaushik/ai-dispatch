@@ -34,8 +34,14 @@ class DispatchService:
 
         # C1 FIX: Only fetch orders for the target date, not all historical orders
         if dispatch_date is None:
-            from datetime import date
-            dispatch_date = date.today().isoformat()
+            # For POC robustness: If no date passed, default to the date of the latest order in the database
+            latest_order = self.db.query(ServiceOrder).order_by(ServiceOrder.start_time.desc()).first()
+            if latest_order:
+                dispatch_date = latest_order.start_time[:10]
+            else:
+                from datetime import date
+                dispatch_date = date.today().isoformat()
+        
         orders = self.db.query(ServiceOrder).filter(
             ServiceOrder.start_time.startswith(dispatch_date)
         ).all()
