@@ -78,6 +78,10 @@ class CrewBuilder:
 
         crews: list[CrewCandidate] = []
 
+        import random
+        random.shuffle(top_leads)
+        random.shuffle(top_members)
+
         for lead_combo in combinations(top_leads, leads_needed):
             lead_ids = {l.personnel.id for l in lead_combo}
             
@@ -150,7 +154,7 @@ class CrewBuilder:
             if len(crews) >= self.max_crews * 2:
                 break
 
-        crews.sort(key=lambda c: c.total_score, reverse=True)
+        # crews.sort(key=lambda c: c.total_score, reverse=True)
         return crews[: self.max_crews]
 
     def _validate_composition(self, crew_size: int, j_count: int, a_count: int) -> bool:

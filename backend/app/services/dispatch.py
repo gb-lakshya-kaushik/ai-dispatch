@@ -52,8 +52,8 @@ class DispatchService:
         # H1 FIX: Pass score threshold from settings
         # M4 FIX: Increase max_crews, max_leads, max_members to ensure diverse crews for concurrent orders
         crew_builder = CrewBuilder(
-            max_leads=100, 
-            max_members=200, 
+            max_leads=300, 
+            max_members=300, 
             max_crews=50, 
             min_crew_score=settings.min_crew_score_threshold
         )

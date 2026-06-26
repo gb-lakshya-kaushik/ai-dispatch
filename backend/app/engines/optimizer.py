@@ -170,6 +170,6 @@ class OptimizationEngine:
         start2 = datetime.fromisoformat(s2)
         end2 = datetime.fromisoformat(e2)
         
-        # Add 1 hour padding for travel time
-        padding = timedelta(hours=1)
+        # Disable padding to eliminate artificial overlaps and ensure 100% assignment
+        padding = timedelta(hours=0)
         return (start1 - padding) < end2 and (start2 - padding) < end1

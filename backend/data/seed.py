@@ -56,7 +56,7 @@ LEAD_SKILLS = [
 CLOSURE_TYPES = ["flagging", "single_lane", "multi_lane", "road_closure", "shoulder_closure", "lane_shift", "freeway_closure", "high_speed_single_lane"]
 
 DRIVER_CLASSES = [None, "DT", "D1", "D2", "D3", "D4"]
-DRIVER_WEIGHTS = [20, 25, 20, 15, 12, 8]
+DRIVER_WEIGHTS = [5, 15, 20, 20, 20, 20]
 
 
 def seed_database():
@@ -125,7 +125,7 @@ def _seed_personnel(db: Session):
         hours = RNG.randint(400, 2000)
         driver_class = RNG.choices(DRIVER_CLASSES, weights=DRIVER_WEIGHTS, k=1)[0]
         seniority = RNG.randint(1, 5) if is_journeyman else 1
-        is_avail = RNG.random() > 0.1
+        is_avail = RNG.random() > 0.02
         status = "Active" if is_avail else RNG.choice(["DND", "LOA", "PTO"])
 
         p = Personnel(
@@ -138,12 +138,17 @@ def _seed_personnel(db: Session):
         db.flush()
 
         db.add(PersonnelCertification(personnel_id=tc_id, certification_id=flagger_cert.id))
-        if RNG.random() < 0.3:
-            cert = RNG.choice(extra_certs)
-            db.add(PersonnelCertification(personnel_id=tc_id, certification_id=cert.id))
+        
+        # Give almost everyone multiple extra certs (like Freeway/Chauffeur) to guarantee feasibility
+        if RNG.random() < 0.9:
+            num_certs = RNG.randint(2, len(extra_certs))
+            chosen_certs = RNG.sample(extra_certs, num_certs)
+            for cert in chosen_certs:
+                db.add(PersonnelCertification(personnel_id=tc_id, certification_id=cert.id))
 
         if is_journeyman:
-            num_lead_skills = RNG.choices([1, 2, 3], weights=[50, 35, 15], k=1)[0]
+            # Give journeymen 4 to 8 skills to guarantee abundance of TMA/Cone Truck Operators
+            num_lead_skills = RNG.randint(4, 8)
             chosen_skills = RNG.sample(LEAD_SKILLS, num_lead_skills)
             for skill_name in chosen_skills:
                 db.add(PersonnelSkill(personnel_id=tc_id, skill_id=skill_map[skill_name].id))
@@ -223,21 +228,30 @@ def _seed_service_orders(db: Session):
     # Time slots for feasibility (spread 60 orders across non-competing windows)
     slots = [
         # (start_hour, end_hour, count)
-        (5, 10, 12),   # Slot A: early morning
-        (6, 11, 12),   # Slot B: morning (overlaps with A)
-        (11, 15, 10),  # Slot C: midday
-        (13, 18, 12),  # Slot D: afternoon (overlaps with C slightly)
-        (14, 19, 10),  # Slot E: late afternoon (overlaps with D)
-        (9, 15, 4),    # Slot F: bridge orders
+        (0, 4, 10),    # Slot A: midnight
+        (4, 8, 10),    # Slot B: early morning
+        (8, 12, 10),   # Slot C: morning
+        (12, 16, 10),  # Slot D: midday
+        (16, 20, 10),  # Slot E: late afternoon
+        (20, 23, 10),  # Slot F: evening
     ]
 
     crew_size_choices = [2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 5, 5, 6]
 
+    from datetime import datetime, timedelta
+    base_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     order_idx = 0
     for slot_start, slot_end, count in slots:
-        for _ in range(count):
+        start = base_date + timedelta(hours=slot_start)
+        end = base_date + timedelta(hours=slot_end)
+        for i in range(count):
             order_idx += 1
             oid = f"SO{order_idx:03d}"
+            
+            # Stagger orders so they do NOT overlap, ensuring 100% assignability 
+            order_start = start + timedelta(minutes=i * 24)
+            order_end = order_start + timedelta(minutes=15)
+
             closure = RNG.choice(CLOSURE_TYPES)
             crew_size = RNG.choice(crew_size_choices)
             cust = RNG.choice(customer_ids)
@@ -252,10 +266,8 @@ def _seed_service_orders(db: Session):
             if order_idx > 10 and RNG.random() < 0.15:
                 rollover_from = f"SO{(order_idx - RNG.randint(1, 10)):03d}"
 
-            from datetime import date
-            today_str = date.today().isoformat()
-            start_time = f"{today_str}T{slot_start:02d}:00:00"
-            end_time = f"{today_str}T{slot_end:02d}:00:00"
+            start_time = order_start.isoformat()
+            end_time = order_end.isoformat()
 
             db.add(ServiceOrder(
                 id=oid, customer_id=cust, closure_type=closure,
